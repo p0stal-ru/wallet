@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 import static com.example.wallet_service.enums.OperationType.WITHDRAW;
 
@@ -22,27 +23,68 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
 
+//    @Transactional
+//    public void processTransaction(WalletRequest walletRequest) {
+//
+//        Wallet wallet = walletRepository.findById(walletRequest.getWalletId())
+//                .orElseThrow(WalletNotFoundException::new);
+//
+//        BigDecimal currentBalance = wallet.getBalance();
+//
+//        OperationType operationType = OperationType.valueOf(walletRequest.getOperationType());
+//
+//
+//        BigDecimal newOperationBalance = switch (operationType) {
+//            case DEPOSIT -> walletRequest.getAmount();
+//            case WITHDRAW -> validateWithdraw(currentBalance, walletRequest.getAmount(), operationType);
+//        };
+//
+//
+//        BigDecimal resultBalance = currentBalance.add(newOperationBalance);
+//
+//        wallet.setBalance(resultBalance);
+//        walletRepository.save(wallet);
+//    }
+
     @Transactional
     public void processTransaction(WalletRequest walletRequest) {
 
         Wallet wallet = walletRepository.findById(walletRequest.getWalletId())
                 .orElseThrow(WalletNotFoundException::new);
 
-        BigDecimal currentBalance = wallet.getBalance();
 
         OperationType operationType = OperationType.valueOf(walletRequest.getOperationType());
 
+        synchronized (wallet) {
+            switch (operationType) {
+                case DEPOSIT:
+                    wallet.setBalance(wallet.getBalance().add(walletRequest.getAmount()));
+                    walletRepository.save(wallet);
+                    log.info("Поступление на счет: {}", walletRequest);
+                    break;
 
-        BigDecimal newOperationBalance = switch (operationType) {
-            case DEPOSIT -> walletRequest.getAmount();
-            case WITHDRAW -> validateWithdraw(currentBalance, walletRequest.getAmount(), operationType);
-        };
+                case WITHDRAW:
+                    if (wallet.getBalance().compareTo(walletRequest.getAmount()) < 0) {
+                        throw new InsufficientFundsException();
+                    }
+                    wallet.setBalance(wallet.getBalance().subtract(walletRequest.getAmount()));
+                    walletRepository.save(wallet);
+                    log.info("Списание: {}", wallet);
+                    break;
+
+                default:
+                    throw new IllegalArgumentException("Не корректно введена операция");
+            }
+
+        }
+    }
 
 
-        BigDecimal resultBalance = currentBalance.add(newOperationBalance);
-
-        wallet.setBalance(resultBalance);
-        walletRepository.save(wallet);
+    public BigDecimal getBalance(UUID walletId) {
+        Wallet wallet = walletRepository.findById(walletId)
+                .orElseThrow(WalletNotFoundException::new);
+        log.info("Баланс: {}", wallet);
+        return wallet.getBalance();
     }
 
 
